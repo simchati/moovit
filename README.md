@@ -31,3 +31,13 @@ journalctl -u bus-arrivals -f                               # logs en direct
 journalctl -u bus-arrivals --since today | grep ERROR       # erreurs API du jour
 ```
 L'IP publique du serveur Hetzner doit être déclarée au ministère (ptsupport@mot.gov.il).
+
+## Déploiement avec Coolify
+1. Coolify → **+ New Resource** → *Public Repository* (ou *Private Repository (with GitHub App)* si le dépôt est privé) → `simchati/moovit`, branche `main`.
+2. **Build Pack : Dockerfile**. Port exposé : `3000`.
+3. **Environment Variables** : `MOT_KEY`, `MOT_BASE_URL`, `APP_PASSWORD` (cocher *Is Secret* sur les trois).
+4. **Domains** : par ex. `https://bus.mondomaine.com` (Coolify génère le certificat HTTPS).
+5. *(Optionnel)* **Persistent Storage** : volume monté sur `/app/data` pour ne pas retélécharger le GTFS à chaque déploiement.
+6. **Deploy**. Les erreurs API apparaissent dans l'onglet **Logs**.
+
+L'API du ministère voit l'IP publique du serveur Hetzner : c'est elle qu'il faut faire autoriser.
