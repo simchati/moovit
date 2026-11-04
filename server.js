@@ -88,7 +88,9 @@ function getArrivals(stop) {
     .catch((e) => {
       cache.delete(stop);
       if (!e.logged) logError('arrivals', 'Unexpected error', { stop, cause: e.stack || e.message });
-      return [502, { ...names, error: e.message || 'Erreur réseau' }];
+      // 200 et non 502 : sinon un proxy (Traefik, Cloudflare…) peut remplacer la réponse
+      // par sa propre page d'erreur HTML, et la tablette perd le nom de la station.
+      return [200, { stop, ...names, error: e.message || 'Erreur réseau' }];
     });
   cache.set(stop, { at: Date.now(), promise });
   return promise;
@@ -120,7 +122,7 @@ async function fetchArrivals(stop) {
   const err = deliveries.map((d) => text(d?.ErrorCondition?.OtherError?.ErrorText)).find(Boolean);
   if (err) {
     logError('MOT', 'API returned an ErrorCondition', { stop, errorText: err });
-    return [502, { error: err }];
+    return [200, { stop, error: err }];
   }
   if (!data?.Siri?.ServiceDelivery) {
     logError('MOT', 'Unexpected response shape (no Siri.ServiceDelivery)', { stop, body: snippet(JSON.stringify(data)) });

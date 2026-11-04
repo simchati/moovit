@@ -160,9 +160,15 @@
     try {
       const r = await fetch('/api/arrivals?stop=' + encodeURIComponent(stop), { cache: 'no-store' });
       if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
-      const d = await r.json();
+      const raw = await r.text();
+      let d;
+      try { d = JSON.parse(raw); }
+      catch {
+        console.error('Réponse non JSON pour la station', stop, r.status, raw.slice(0, 500));
+        throw new Error(`Le serveur a renvoyé une page au lieu des données (HTTP ${r.status})`);
+      }
       if (d.stopName) names[stop] = { name: d.stopName, city: d.stopCity };
-      if (!r.ok) throw new Error(d.error || 'Erreur ' + r.status);
+      if (!r.ok || d.error) throw new Error(d.error || 'Erreur ' + r.status);
       results[stop] = { buses: d.buses, updated: d.updated };
     } catch (e) {
       results[stop] = { ...(results[stop] || {}), error: e.message };
