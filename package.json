@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": ">=20.6" },
   "scripts": {
-    "start": "node --env-file=.env server.js",
-    "dev": "MOT_MOCK=1 APP_PASSWORD=dev node server.js"
+    "start": "node server.js",
+   "dev": "node --env-file=.env server.js"
   }
 }
