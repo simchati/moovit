@@ -1,7 +1,7 @@
 # Prochains bus (SIRI-SM 2.8)
 
 Un écran : on tape un numéro de station et on voit les bus attendus dans les 30 prochaines minutes (rafraîchi toutes les 30 s).
-Node ≥ 20.6 et la commande `unzip`, aucune dépendance npm.
+Node ≥ 20.6, aucune dépendance (ni npm, ni système).
 
 Les noms de stations viennent du GTFS du ministère : `stops.js` le télécharge au démarrage puis une fois par jour, et garde seulement `data/stops.json` (~2,5 Mo).
 
@@ -21,7 +21,6 @@ npm start              # vraies données (seulement depuis une IP autorisée par
 rsync -av --exclude .env --exclude node_modules ./ root@IP_HETZNER:/opt/bus-arrivals/
 
 # sur le serveur
-apt install -y unzip
 mkdir -p /opt/bus-arrivals/data && chown www-data /opt/bus-arrivals/data
 cd /opt/bus-arrivals && cp .env.example .env && nano .env   # remplir MOT_KEY et APP_PASSWORD
 cp deploy/bus-arrivals.service /etc/systemd/system/

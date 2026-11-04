@@ -1,8 +1,5 @@
 FROM node:22-alpine
 
-# unzip : extraction de stops.txt depuis le GTFS du ministère
-RUN apk add --no-cache unzip
-
 WORKDIR /app
 COPY package.json server.js stops.js ./
 COPY public ./public

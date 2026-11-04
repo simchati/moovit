@@ -1,17 +1,15 @@
 // Noms des stations : l'API SIRI ne renvoie que des numéros (stop_code).
 // Les noms viennent du GTFS du ministère (stops.txt), téléchargé une fois par jour.
-// Nécessite la commande `unzip` (apt install unzip).
+// Aucune dépendance système : le zip est lu directement en Node.
 import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, writeFile, stat, rm } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, stat, rm, open } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { inflateRawSync } from 'node:zlib';
 import { join } from 'node:path';
 
 const GTFS_URL = process.env.GTFS_URL || 'https://gtfs.mot.gov.il/gtfsfiles/israel-public-transportation.zip';
 const MAX_AGE_MS = 24 * 3600 * 1000;
-const run = promisify(execFile);
 
 let stops = new Map(); // stop_code -> { name, city }
 let dataDir;
@@ -46,6 +44,79 @@ function parseStops(csv) {
   return map;
 }
 
+// Extrait un seul fichier d'une archive zip sans la charger en entier en mémoire
+// (le GTFS fait ~150 Mo, stops.txt ~5 Mo). Gère les archives Zip64.
+async function extractFromZip(zipPath, wanted) {
+  const fh = await open(zipPath, 'r');
+  try {
+    const read = async (pos, len) => {
+      const buf = Buffer.alloc(len);
+      const { bytesRead } = await fh.read(buf, 0, len, pos);
+      return buf.subarray(0, bytesRead);
+    };
+    const size = (await fh.stat()).size;
+
+    // 1. Fin du répertoire central (EOCD), dans les derniers 64 Ko
+    const tailLen = Math.min(size, 65557);
+    const tail = await read(size - tailLen, tailLen);
+    const eocd = tail.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    if (eocd < 0) throw new Error('zip invalide (EOCD introuvable)');
+    let cdCount = tail.readUInt16LE(eocd + 10);
+    let cdSize = tail.readUInt32LE(eocd + 12);
+    let cdOffset = tail.readUInt32LE(eocd + 16);
+
+    // Zip64 : le localisateur se trouve juste avant l'EOCD
+    if (cdOffset === 0xffffffff || cdCount === 0xffff) {
+      const loc = eocd - 20;
+      if (loc < 0 || tail.readUInt32LE(loc) !== 0x07064b50) throw new Error('zip64 invalide');
+      const z64 = await read(Number(tail.readBigUInt64LE(loc + 8)), 56);
+      cdCount = Number(z64.readBigUInt64LE(32));
+      cdSize = Number(z64.readBigUInt64LE(40));
+      cdOffset = Number(z64.readBigUInt64LE(48));
+    }
+
+    // 2. Répertoire central : chercher l'entrée voulue
+    const cd = await read(cdOffset, cdSize);
+    for (let p = 0, i = 0; i < cdCount && p + 46 <= cd.length; i++) {
+      if (cd.readUInt32LE(p) !== 0x02014b50) throw new Error('zip invalide (répertoire central)');
+      const method = cd.readUInt16LE(p + 10);
+      let compSize = cd.readUInt32LE(p + 20);
+      let uncompSize = cd.readUInt32LE(p + 24);
+      const nameLen = cd.readUInt16LE(p + 28), extraLen = cd.readUInt16LE(p + 30), commentLen = cd.readUInt16LE(p + 32);
+      let localOffset = cd.readUInt32LE(p + 42);
+      const name = cd.toString('utf8', p + 46, p + 46 + nameLen);
+
+      if (name === wanted) {
+        // Tailles / offset en Zip64 : dans le champ extra 0x0001, dans cet ordre
+        let e = p + 46 + nameLen;
+        const eEnd = e + extraLen;
+        while (e + 4 <= eEnd) {
+          const id = cd.readUInt16LE(e), len = cd.readUInt16LE(e + 2);
+          if (id === 0x0001) {
+            let q = e + 4;
+            if (uncompSize === 0xffffffff) { uncompSize = Number(cd.readBigUInt64LE(q)); q += 8; }
+            if (compSize === 0xffffffff) { compSize = Number(cd.readBigUInt64LE(q)); q += 8; }
+            if (localOffset === 0xffffffff) { localOffset = Number(cd.readBigUInt64LE(q)); }
+          }
+          e += 4 + len;
+        }
+        // 3. En-tête local (sa longueur de nom/extra peut différer du répertoire central)
+        const lh = await read(localOffset, 30);
+        if (lh.readUInt32LE(0) !== 0x04034b50) throw new Error('zip invalide (en-tête local)');
+        const dataStart = localOffset + 30 + lh.readUInt16LE(26) + lh.readUInt16LE(28);
+        const data = await read(dataStart, compSize);
+        if (method === 0) return data;
+        if (method === 8) return inflateRawSync(data);
+        throw new Error(`méthode de compression ${method} non gérée`);
+      }
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    throw new Error(`${wanted} absent de l'archive`);
+  } finally {
+    await fh.close();
+  }
+}
+
 async function download() {
   const zip = join(dataDir, 'gtfs.zip');
   console.log('GTFS : téléchargement des noms de stations…');
@@ -53,8 +124,7 @@ async function download() {
   if (!res.ok) throw new Error(`GTFS HTTP ${res.status}`);
   await pipeline(Readable.fromWeb(res.body), createWriteStream(zip));
   try {
-    const { stdout } = await run('unzip', ['-p', zip, 'stops.txt'], { maxBuffer: 64 * 1024 * 1024 });
-    const map = parseStops(stdout);
+    const map = parseStops((await extractFromZip(zip, 'stops.txt')).toString('utf8'));
     if (Object.keys(map).length < 1000) throw new Error('stops.txt semble incomplet');
     await writeFile(join(dataDir, 'stops.json'), JSON.stringify(map));
     return map;
