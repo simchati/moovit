@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prochains bus</title>
+  <style>
+    :root { --bg:#0f1115; --card:#1a1d24; --row:#22262f; --fg:#f2f4f8; --muted:#8a92a3; --accent:#ffcc00; --soon:#3ddc84; --err:#ff6b6b; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif; }
+    button { font:inherit; cursor:pointer; border:0; color:inherit; }
+    input { font:inherit; }
+    header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:14px 20px; background:var(--card); position:sticky; top:0; z-index:1; }
+    .title { flex:1; min-width:200px; }
+    header h1 { margin:0; font-size:22px; white-space:nowrap; }
+    #status { color:var(--muted); font-size:14px; margin-top:2px; }
+    #status.on { color:var(--soon); }
+    #clock { color:var(--muted); font-size:20px; font-variant-numeric:tabular-nums; }
+    .icon { width:52px; height:52px; border-radius:12px; background:var(--row); font-size:28px; line-height:1; display:grid; place-items:center; }
+    .icon:active { background:#333a46; }
+    #refresh.spin span { display:inline-block; animation:spin .8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    form#f { display:flex; gap:8px; }
+    .field { width:170px; font-size:22px; padding:10px 14px; border-radius:10px; border:2px solid #333a46; background:#0b0d11; color:var(--fg); }
+    .field:focus { outline:none; border-color:var(--accent); }
+    .btn { font-size:20px; padding:10px 18px; border-radius:10px; background:var(--accent); color:#000; font-weight:700; }
+    .btn.ghost { background:var(--row); color:var(--fg); font-weight:600; }
+    #stations { display:grid; gap:16px; padding:16px 20px; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); }
+    @media (max-width: 480px) { #stations { grid-template-columns:1fr; padding:12px; } }
+    section { background:var(--card); border-radius:16px; padding:14px; align-self:start; }
+    .head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+    .head h2 { margin:0; font-size:22px; }
+    .sub { color:var(--fg); opacity:.75; font-size:15px; margin:2px 0; }
+    .meta { color:var(--muted); font-size:14px; }
+    .meta.error { color:var(--err); }
+    .del { width:44px; height:44px; border-radius:10px; background:var(--row); color:var(--muted); font-size:22px; line-height:1; flex:none; }
+    .del:active { background:var(--err); color:#000; }
+    ul { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
+    li { display:flex; align-items:center; gap:14px; background:var(--row); border-radius:12px; padding:10px 14px; }
+    .line { min-width:84px; text-align:center; font-size:30px; font-weight:800; background:var(--accent); color:#000; border-radius:10px; padding:4px 8px; }
+    .info { flex:1; color:var(--muted); font-size:15px; line-height:1.4; }
+    .eta { font-size:34px; font-weight:800; text-align:right; min-width:100px; }
+    .eta small { font-size:16px; font-weight:600; color:var(--muted); margin-left:4px; }
+    .eta.now { color:var(--soon); }
+    .empty { text-align:center; color:var(--muted); font-size:18px; padding:24px 10px; }
+    .welcome { grid-column:1/-1; font-size:22px; padding:60px 20px; }
+    .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--soon); margin-right:6px; vertical-align:middle; }
+
+    /* Écran de configuration */
+    #settings { position:fixed; inset:0; background:rgba(0,0,0,.7); display:none; place-items:center; z-index:10; padding:16px; }
+    #settings.open { display:grid; }
+    .panel { background:var(--card); border-radius:18px; padding:22px; width:min(560px, 100%); max-height:100%; overflow:auto; }
+    .panel h2 { margin:0 0 4px; font-size:24px; }
+    .panel h3 { margin:22px 0 8px; font-size:18px; }
+    .hint { color:var(--muted); font-size:14px; margin:0 0 10px; line-height:1.4; }
+    .win { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    .win input[type=time] { font-size:22px; padding:8px 10px; border-radius:10px; border:2px solid #333a46; background:#0b0d11; color:var(--fg); color-scheme:dark; }
+    .win span { color:var(--muted); }
+    .row { display:flex; align-items:center; gap:10px; }
+    #interval { width:110px; }
+    .actions { display:flex; justify-content:flex-end; gap:10px; margin-top:24px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">
+      <h1>Prochains bus · 30 min</h1>
+      <div id="status"></div>
+    </div>
+    <span id="clock"></span>
+    <form id="f">
+      <input id="stop" class="field" inputmode="numeric" pattern="\d*" maxlength="6" placeholder="N° station" autocomplete="off">
+      <button class="btn">+ Ajouter</button>
+    </form>
+    <button id="refresh" class="icon" title="Rafraîchir maintenant" aria-label="Rafraîchir maintenant"><span>⟳</span></button>
+    <button id="openSettings" class="icon" title="Réglages" aria-label="Réglages">⚙</button>
+  </header>
+  <div id="stations"></div>
+
+  <div id="settings" role="dialog" aria-modal="true" aria-labelledby="setTitle">
+    <div class="panel">
+      <h2 id="setTitle">Réglages</h2>
+      <p class="hint">Hors des plages horaires, rien n'est envoyé à l'API : les minutes restantes continuent de défiler à partir des dernières données. Le bouton ⟳ rafraîchit à tout moment.</p>
+
+      <h3>Plages de rafraîchissement automatique</h3>
+      <div id="windows"></div>
+      <button id="addWin" class="btn ghost" type="button">+ Ajouter une plage</button>
+
+      <h3>Fréquence pendant les plages</h3>
+      <div class="row">
+        Toutes les <input id="interval" class="field" type="number" min="15" step="5"> secondes
+      </div>
+      <p class="hint">Minimum 15 s. Chaque station = 1 appel à l'API par rafraîchissement.</p>
+
+      <div class="actions">
+        <a href="/logout" class="btn ghost" style="margin-right:auto;text-decoration:none">Se déconnecter</a>
+        <button id="cancelSet" class="btn ghost" type="button">Annuler</button>
+        <button id="saveSet" class="btn" type="button">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const MIN_INTERVAL = 15;
+  const DEFAULT_SETTINGS = { interval: 30, windows: [{ start: '07:54', end: '08:45' }] };
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const hhmm = (d) => d ? new Date(d).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' }) : '';
+  const valid = (s) => /^\d{1,6}$/.test(s);
+  const ls = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  // ---------- Réglages ----------
+  function loadSettings() {
+    try {
+      const s = JSON.parse(ls.get('settings'));
+      if (s && Array.isArray(s.windows) && s.interval >= MIN_INTERVAL) return s;
+    } catch {}
+    return structuredClone(DEFAULT_SETTINGS);
+  }
+  let settings = loadSettings();
+
+  const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+  function inWindow(w, m = nowMin()) {
+    const a = toMin(w.start), b = toMin(w.end);
+    return a <= b ? m >= a && m < b : m >= a || m < b; // gère les plages qui passent minuit
+  }
+  const activeWindow = () => settings.windows.find((w) => inWindow(w));
+  function nextStart() {
+    const m = nowMin();
+    const starts = settings.windows.map((w) => w.start).sort();
+    return starts.find((s) => toMin(s) > m) || (starts[0] ? starts[0] + ' (demain)' : null);
+  }
+
+  // ---------- Stations : URL (?stops=1,2) > localStorage ----------
+  function loadStops() {
+    const q = new URLSearchParams(location.search);
+    const fromUrl = q.get('stops') || q.get('stop');
+    if (fromUrl) return fromUrl.split(',').map((s) => s.trim()).filter(valid);
+    try { const saved = JSON.parse(ls.get('stops') || '[]'); if (Array.isArray(saved)) return saved.filter(valid); } catch {}
+    const old = ls.get('stop'); if (valid(old || '')) return [old];
+    return [];
+  }
+  let stops = [...new Set(loadStops())];
+  const results = {}; // stop -> { buses, updated, error }
+  const names = {};   // stop -> { name, city }
+  let lastFetch = 0, pending = 0;
+
+  function saveStops() {
+    ls.set('stops', JSON.stringify(stops));
+    history.replaceState(null, '', stops.length ? '?stops=' + stops.join(',') : location.pathname);
+  }
+
+  // ---------- Données ----------
+  async function fetchStop(stop) {
+    pending++; $('refresh').classList.add('spin');
+    try {
+      const r = await fetch('/api/arrivals?stop=' + encodeURIComponent(stop), { cache: 'no-store' });
+      if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search); return; }
+      const d = await r.json();
+      if (d.stopName) names[stop] = { name: d.stopName, city: d.stopCity };
+      if (!r.ok) throw new Error(d.error || 'Erreur ' + r.status);
+      results[stop] = { buses: d.buses, updated: d.updated };
+    } catch (e) {
+      results[stop] = { ...(results[stop] || {}), error: e.message };
+    } finally {
+      if (--pending === 0) $('refresh').classList.remove('spin');
+    }
+    if (stops.includes(stop)) renderStation(stop);
+  }
+
+  function refreshAll() {
+    lastFetch = Date.now();
+    stops.forEach(fetchStop);
+  }
+
+  // Vérifie chaque seconde s'il faut rafraîchir (dans une plage + intervalle écoulé)
+  function tick() {
+    $('clock').textContent = hhmm(Date.now());
+    const w = activeWindow();
+    if (w && Date.now() - lastFetch >= settings.interval * 1000) refreshAll();
+    const st = $('status');
+    if (w) { st.textContent = `Auto toutes les ${settings.interval}s jusqu'à ${w.end}`; st.className = 'on'; }
+    else { const n = nextStart(); st.textContent = n ? `Auto en pause · reprise à ${n}` : 'Auto désactivé · appuyez sur ⟳'; st.className = ''; }
+  }
+
+  // ---------- Affichage ----------
+  function render() {
+    const box = $('stations');
+    if (!stops.length) { box.innerHTML = '<div class="empty welcome">Ajoutez un numéro de station</div>'; return; }
+    box.innerHTML = stops.map((s) => `<section id="st-${s}"></section>`).join('');
+    stops.forEach(renderStation);
+  }
+
+  function renderStation(stop) {
+    const el = $('st-' + stop);
+    if (!el) return;
+    const r = results[stop];
+    let meta = 'Chargement…', cls = 'meta', body = '';
+    if (r) {
+      if (r.error) { meta = r.error; cls += ' error'; }
+      else if (r.updated) meta = `Mis à jour à ${hhmm(r.updated)}`;
+      if (r.buses) {
+        // Minutes recalculées localement : le décompte avance même sans appel API
+        const now = Date.now();
+        const buses = r.buses
+          .map((b) => ({ ...b, minutes: Math.round((Date.parse(b.expected) - now) / 60000) }))
+          .filter((b) => b.minutes >= 0);
+        body = buses.length
+          ? '<ul>' + buses.map((b) => `
+              <li>
+                <div class="line">${esc(b.line)}</div>
+                <div class="info">${b.realtime ? '<span class="dot" title="Temps réel"></span>' : ''}Arrivée ${esc(hhmm(b.expected))}
+                  ${b.destinationName ? `<br>Vers ${esc(b.destinationName)}` : b.destination ? `<br>Vers station ${esc(b.destination)}` : ''}</div>
+                <div class="eta ${b.minutes <= 1 ? 'now' : ''}">${b.minutes === 0 ? 'Arrive' : b.minutes + '<small>min</small>'}</div>
+              </li>`).join('') + '</ul>'
+          : '<div class="empty">Aucun bus dans les 30 prochaines minutes</div>';
+      }
+    }
+    el.innerHTML = `
+      <div class="head">
+        <div style="flex:1;min-width:0">
+          <h2 dir="auto">${esc(names[stop]?.name || 'Station ' + stop)}</h2>
+          <div class="sub" dir="auto">N° ${esc(stop)}${names[stop]?.city ? ' · ' + esc(names[stop].city) : ''}</div>
+          <div class="${cls}">${esc(meta)}</div>
+        </div>
+        <button class="del" data-stop="${esc(stop)}" title="Supprimer" aria-label="Supprimer la station ${esc(stop)}">✕</button>
+      </div>${body}`;
+  }
+
+  // ---------- Écran de configuration ----------
+  function winRow(w = { start: '', end: '' }) {
+    return `<div class="win">
+      <input type="time" class="ws" value="${esc(w.start)}" required> <span>→</span>
+      <input type="time" class="we" value="${esc(w.end)}" required>
+      <button type="button" class="del rmWin" aria-label="Supprimer la plage">✕</button>
+    </div>`;
+  }
+  function openSettings() {
+    $('windows').innerHTML = settings.windows.map(winRow).join('');
+    $('interval').value = settings.interval;
+    $('settings').classList.add('open');
+  }
+  const closeSettings = () => $('settings').classList.remove('open');
+
+  $('openSettings').onclick = openSettings;
+  $('cancelSet').onclick = closeSettings;
+  $('addWin').onclick = () => $('windows').insertAdjacentHTML('beforeend', winRow());
+  $('windows').addEventListener('click', (e) => { if (e.target.closest('.rmWin')) e.target.closest('.win').remove(); });
+  $('saveSet').onclick = () => {
+    const windows = [...$('windows').querySelectorAll('.win')]
+      .map((r) => ({ start: r.querySelector('.ws').value, end: r.querySelector('.we').value }))
+      .filter((w) => w.start && w.end && w.start !== w.end)
+      .sort((a, b) => a.start.localeCompare(b.start));
+    const interval = Math.max(MIN_INTERVAL, Math.round(Number($('interval').value) || DEFAULT_SETTINGS.interval));
+    settings = { interval, windows };
+    ls.set('settings', JSON.stringify(settings));
+    closeSettings(); tick();
+  };
+
+  // ---------- Actions ----------
+  $('refresh').onclick = refreshAll;
+
+  $('f').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const s = $('stop').value.trim();
+    if (!valid(s)) { $('stop').focus(); return; }
+    $('stop').value = '';
+    if (stops.includes(s)) return;
+    stops.push(s);
+    saveStops(); render(); fetchStop(s);
+  });
+
+  $('stations').addEventListener('click', (e) => {
+    const btn = e.target.closest('.del');
+    if (!btn) return;
+    const s = btn.dataset.stop;
+    if (!confirm(`Supprimer la station ${s} ?`)) return;
+    stops = stops.filter((x) => x !== s);
+    delete results[s];
+    saveStops(); render();
+  });
+
+  // ---------- Démarrage ----------
+  saveStops(); render();
+  refreshAll();                                       // un seul chargement à l'ouverture
+  setInterval(tick, 1000);
+  setInterval(() => stops.forEach(renderStation), 15000); // décompte local des minutes
+  tick();
+</script>
+</body>
+</html>

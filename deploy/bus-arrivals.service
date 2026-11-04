@@ -1,0 +1,13 @@
+[Unit]
+Description=Bus arrivals (SIRI-SM)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/bus-arrivals
+ExecStart=/usr/bin/node --env-file=/opt/bus-arrivals/.env server.js
+Restart=always
+User=www-data
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
